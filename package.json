@@ -1,6 +1,6 @@
 {
   "name": "morn-gif-processor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "GIF image batch processor using ffmpeg",
   "type": "module",
   "scripts": {

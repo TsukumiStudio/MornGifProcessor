@@ -224,13 +224,17 @@
   {#if appState.ffmpegInfo}
     <div class="content">
       <FileDropZone bind:this={fileDropZone} onFileSelected={loadFile} />
-      <GifPreview />
-      <ActionBar
-        onChangeFile={() => fileDropZone?.openFileDialog()}
-        onDownloadGif={() => handleDownloadAs("gif")}
-        onDownloadApng={() => handleDownloadAs("apng")}
-        onDownloadFrames={handleDownloadFrames}
-      />
+      {#if appState.phase !== "empty"}
+        <div class="preview-row">
+          <GifPreview />
+          <ActionBar
+            onChangeFile={() => fileDropZone?.openFileDialog()}
+            onDownloadGif={() => handleDownloadAs("gif")}
+            onDownloadApng={() => handleDownloadAs("apng")}
+            onDownloadFrames={handleDownloadFrames}
+          />
+        </div>
+      {/if}
       {#if appState.phase !== "empty"}
         <ProcessingForm onApply={handleApply} />
         <HistoryPanel />
@@ -359,6 +363,16 @@
     display: flex;
     flex-direction: column;
     gap: 20px;
+  }
+
+  .preview-row {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+  .preview-row > :global(:first-child) {
+    flex: 1;
+    min-width: 0;
   }
 
   .error-container {

@@ -36,10 +36,17 @@
     }
   }
 
-  onMount(() => {
-    if (appState.workingBlob && appState.workingInfo && frameUrls.length === 0) {
+  let trackedBlob: Blob | null = null;
+
+  $effect(() => {
+    const blob = appState.workingBlob;
+    if (blob && blob !== trackedBlob && appState.workingInfo) {
+      trackedBlob = blob;
       handleExtract();
     }
+  });
+
+  onMount(() => {
     window.addEventListener("keydown", handleKeydown);
   });
 

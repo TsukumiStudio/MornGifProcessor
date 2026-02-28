@@ -12,98 +12,88 @@
   const appState = getAppState();
 </script>
 
-{#if appState.phase !== "empty"}
-  <div class="action-bar">
-    <div class="left">
-      <span class="file-name">{appState.originalInfo?.name ?? ""}</span>
-      <button
-        class="btn change-btn"
-        onclick={onChangeFile}
-        disabled={appState.isProcessing}
-      >
-        別のファイルを開く
-      </button>
-    </div>
-    <div class="right">
-      {#if appState.history.length > 0}
-        <button
-          class="btn undo-btn"
-          onclick={() => appState.undo()}
-          disabled={appState.isProcessing}
-        >
-          元に戻す
-        </button>
-      {/if}
-      <button
-        class="btn download-btn"
-        onclick={onDownloadGif}
-        disabled={appState.isProcessing || !appState.workingBlob}
-      >
-        GIFダウンロード
-      </button>
-      <button
-        class="btn download-btn apng-btn"
-        onclick={onDownloadApng}
-        disabled={appState.isProcessing || !appState.workingBlob}
-      >
-        APNGダウンロード
-      </button>
-      <button
-        class="btn frames-btn"
-        onclick={onDownloadFrames}
-        disabled={appState.isProcessing || !appState.workingBlob}
-      >
-        連番PNG (ZIP)
-      </button>
-    </div>
-  </div>
-{/if}
+<div class="action-col">
+  <span class="file-name">{appState.originalInfo?.name ?? ""}</span>
+  <button
+    class="btn change-btn"
+    onclick={onChangeFile}
+    disabled={appState.isProcessing}
+  >
+    別のファイルを開く
+  </button>
+  <div class="divider"></div>
+  <button
+    class="btn download-btn"
+    onclick={onDownloadGif}
+    disabled={appState.isProcessing || !appState.workingBlob}
+  >
+    GIFダウンロード
+  </button>
+  <button
+    class="btn download-btn apng-btn"
+    onclick={onDownloadApng}
+    disabled={appState.isProcessing || !appState.workingBlob}
+  >
+    APNGダウンロード
+  </button>
+  <button
+    class="btn frames-btn"
+    onclick={onDownloadFrames}
+    disabled={appState.isProcessing || !appState.workingBlob}
+  >
+    連番PNG (ZIP)
+  </button>
+  {#if appState.history.length > 0}
+    <div class="divider"></div>
+    <button
+      class="btn undo-btn"
+      onclick={() => appState.undo()}
+      disabled={appState.isProcessing}
+    >
+      元に戻す
+    </button>
+  {/if}
+</div>
 
 <style>
-  .action-bar {
+  .action-col {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  .left {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-  }
-  .right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 160px;
   }
   .file-name {
-    font-size: 0.85rem;
-    color: #d4d4d8;
+    font-size: 0.8rem;
+    color: #a3a3a3;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    padding: 0 2px;
+  }
+  .divider {
+    height: 1px;
+    background: #2d2d26;
+    margin: 4px 0;
   }
   .btn {
-    padding: 8px 18px;
+    padding: 8px 14px;
     border-radius: 6px;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     cursor: pointer;
     box-shadow: none;
     font-weight: 500;
     white-space: nowrap;
+    text-align: center;
+    width: 100%;
   }
   .btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
   .change-btn {
-    padding: 6px 14px;
     background: #28281f;
     color: #a3a3a3;
     border: 1px solid #3f3f36;
-    font-size: 0.8rem;
   }
   .change-btn:hover:not(:disabled) {
     background: #3f3f36;

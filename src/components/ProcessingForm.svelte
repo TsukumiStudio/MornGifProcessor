@@ -22,15 +22,12 @@
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "basic", label: "基本編集" },
-    { id: "frame", label: "フレーム編集" },
     { id: "color", label: "色調・フィルタ" },
+    { id: "frame", label: "フレーム編集" },
   ];
 </script>
 
 <section class="processing-form">
-  <div class="form-header">
-    <h2>処理設定</h2>
-  </div>
   <div class="tab-bar">
     {#each tabs as tab}
       <button
@@ -56,11 +53,6 @@
       </div>
     </div>
   </div>
-  {#if activeTab === "frame"}
-    <div class="tab-content">
-      <FrameEditor {onApply} />
-    </div>
-  {/if}
   <div class="tab-content" class:hidden={activeTab !== "color"}>
     <div class="settings-grid">
       <div class="settings-col">
@@ -71,6 +63,11 @@
       </div>
     </div>
   </div>
+  {#if activeTab === "frame"}
+    <div class="tab-content">
+      <FrameEditor {onApply} />
+    </div>
+  {/if}
 </section>
 
 <style>
@@ -78,17 +75,6 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-  }
-  .form-header {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-  }
-  h2 {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
-    color: #d4d4d8;
   }
   .tab-bar {
     display: flex;
