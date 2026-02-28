@@ -165,6 +165,160 @@ function parseGifPalette(data: Uint8Array): Uint8Array | null {
   return result;
 }
 
+/** GIFバイナリの各フレームのディレイ値を書き換えて速度変更する（再エンコードなし） */
+function changeGifSpeed(data: Uint8Array, multiplier: number): Uint8Array {
+  const result = new Uint8Array(data);
+  const packed = result[10];
+  let pos = 13;
+
+  // Skip GCT
+  if (packed & 0x80) {
+    pos += (1 << ((packed & 0x07) + 1)) * 3;
+  }
+
+  while (pos < result.length) {
+    const b = result[pos];
+    if (b === 0x3b) break;
+    if (b === 0x21) {
+      const label = result[pos + 1];
+      if (label === 0xf9 && pos + 6 <= result.length) {
+        // Graphic Control Extension: delay is at offset +4 (lo) and +5 (hi), in centiseconds
+        const delay = result[pos + 4] | (result[pos + 5] << 8);
+        const newDelay = Math.max(2, Math.round(delay / multiplier));
+        result[pos + 4] = newDelay & 0xff;
+        result[pos + 5] = (newDelay >> 8) & 0xff;
+      }
+      pos += 2;
+      while (pos < result.length) {
+        const sz = result[pos++];
+        if (sz === 0) break;
+        pos += sz;
+      }
+    } else if (b === 0x2c) {
+      if (pos + 10 > result.length) break;
+      const imgPacked = result[pos + 9];
+      if (imgPacked & 0x80) {
+        pos += 10 + (1 << ((imgPacked & 0x07) + 1)) * 3;
+      } else {
+        pos += 10;
+      }
+      if (pos >= result.length) break;
+      pos++; // LZW min code size
+      while (pos < result.length) {
+        const sz = result[pos++];
+        if (sz === 0) break;
+        pos += sz;
+      }
+    } else {
+      break;
+    }
+  }
+
+  return result;
+}
+
+/** GIFバイナリから各フレームのディレイ値を抽出（センチ秒単位） */
+export function parseGifDelays(data: Uint8Array): number[] {
+  const delays: number[] = [];
+  if (data[0] !== 0x47 || data[1] !== 0x49 || data[2] !== 0x46) return delays;
+
+  const packed = data[10];
+  let pos = 13;
+  if (packed & 0x80) pos += (1 << ((packed & 0x07) + 1)) * 3;
+
+  let pendingDelay = 10; // default 100ms = 10cs
+
+  while (pos < data.length) {
+    const b = data[pos];
+    if (b === 0x3b) break;
+    if (b === 0x21) {
+      const label = data[pos + 1];
+      if (label === 0xf9 && pos + 6 <= data.length) {
+        pendingDelay = data[pos + 4] | (data[pos + 5] << 8);
+      }
+      pos += 2;
+      while (pos < data.length) {
+        const sz = data[pos++];
+        if (sz === 0) break;
+        pos += sz;
+      }
+    } else if (b === 0x2c) {
+      delays.push(pendingDelay);
+      pendingDelay = 10;
+      if (pos + 10 > data.length) break;
+      const imgPacked = data[pos + 9];
+      if (imgPacked & 0x80) {
+        pos += 10 + (1 << ((imgPacked & 0x07) + 1)) * 3;
+      } else {
+        pos += 10;
+      }
+      if (pos >= data.length) break;
+      pos++;
+      while (pos < data.length) {
+        const sz = data[pos++];
+        if (sz === 0) break;
+        pos += sz;
+      }
+    } else {
+      break;
+    }
+  }
+  return delays;
+}
+
+/** GIFバイナリの各フレームのディレイ値を指定値で上書き（センチ秒単位配列） */
+function writeGifDelays(data: Uint8Array, delays: number[]): Uint8Array {
+  const result = new Uint8Array(data);
+  const packed = result[10];
+  let pos = 13;
+  if (packed & 0x80) pos += (1 << ((packed & 0x07) + 1)) * 3;
+
+  let frameIndex = 0;
+  let lastGceDelayPos = -1;
+
+  while (pos < result.length) {
+    const b = result[pos];
+    if (b === 0x3b) break;
+    if (b === 0x21) {
+      const label = result[pos + 1];
+      if (label === 0xf9 && pos + 6 <= result.length) {
+        lastGceDelayPos = pos + 4;
+      }
+      pos += 2;
+      while (pos < result.length) {
+        const sz = result[pos++];
+        if (sz === 0) break;
+        pos += sz;
+      }
+    } else if (b === 0x2c) {
+      if (lastGceDelayPos >= 0 && frameIndex < delays.length) {
+        const d = Math.max(2, delays[frameIndex]);
+        result[lastGceDelayPos] = d & 0xff;
+        result[lastGceDelayPos + 1] = (d >> 8) & 0xff;
+      }
+      frameIndex++;
+      lastGceDelayPos = -1;
+      if (pos + 10 > result.length) break;
+      const imgPacked = result[pos + 9];
+      if (imgPacked & 0x80) {
+        pos += 10 + (1 << ((imgPacked & 0x07) + 1)) * 3;
+      } else {
+        pos += 10;
+      }
+      if (pos >= result.length) break;
+      pos++;
+      while (pos < result.length) {
+        const sz = result[pos++];
+        if (sz === 0) break;
+        pos += sz;
+      }
+    } else {
+      break;
+    }
+  }
+  return result;
+}
+
 /** パレットバイト列（N色×RGB3バイト）からpalette.pngを生成してffmpeg FSに書き込む */
 async function writeOriginalPalette(
   ff: FFmpeg,
@@ -713,6 +867,40 @@ async function applyFrameDelete(
 export async function applyEffect(
   options: ApplyEffectOptions,
 ): Promise<{ blob: Blob; info: GifFileInfo }> {
+  // GIF→GIFでバイナリ操作のみで済むケース（速度変更 / ディレイ変更）
+  const inputIsGif = getFileExtension(options.inputName) === "gif";
+  const outputIsGif = getFileExtension(options.output_name) === "gif";
+  const noPixelChanges =
+    !options.reverse &&
+    !options.resize &&
+    !options.crop &&
+    !options.rotate &&
+    !options.frameRate &&
+    !options.color &&
+    !options.filter &&
+    !options.optimize &&
+    !options.frameDelete?.frameIndices.length;
+  const hasBinaryOnlyChanges = noPixelChanges && (options.speed || options.frameDelays);
+
+  if (hasBinaryOnlyChanges && inputIsGif && outputIsGif) {
+    const ff = getFFmpeg();
+    let data = new Uint8Array(await options.inputBlob.arrayBuffer());
+    if (options.speed) {
+      data = changeGifSpeed(data, options.speed.multiplier);
+    }
+    if (options.frameDelays) {
+      data = writeGifDelays(data, options.frameDelays);
+    }
+    const blob = new Blob([data], { type: "image/gif" });
+
+    const tempName = "binary_out.gif";
+    await ff.writeFile(tempName, data);
+    const info = await probeGifInfo(ff, tempName, blob.size);
+    await ff.deleteFile(tempName);
+
+    return { blob, info: { ...info, name: options.output_name } };
+  }
+
   const ff = getFFmpeg();
   const inputName = "input" + getExtWithDot(options.inputName);
   const outputName = options.output_name;
@@ -758,8 +946,15 @@ export async function applyEffect(
     }
   }
 
-  const data = await ff.readFile(outputName);
-  const blob = new Blob([data], { type: getGifMimeType(outputName) });
+  let outData = new Uint8Array((await ff.readFile(outputName)) as ArrayBuffer);
+
+  // フレーム削除等の後にディレイ変更を適用
+  if (options.frameDelays && getFileExtension(outputName) === "gif") {
+    outData = writeGifDelays(outData, options.frameDelays);
+    await ff.writeFile(outputName, outData);
+  }
+
+  const blob = new Blob([outData], { type: getGifMimeType(outputName) });
   const info = await probeGifInfo(ff, outputName, blob.size);
 
   await ff.deleteFile(inputName);

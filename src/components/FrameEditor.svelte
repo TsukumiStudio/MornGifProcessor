@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import { getAppState } from "$lib/stores.svelte";
-  import { extractFrames, resetFFmpeg } from "$lib/commands";
+  import { extractFrames, resetFFmpeg, parseGifDelays } from "$lib/commands";
+  import { getFileExtension } from "$lib/utils";
   import type { EffectPayload } from "$lib/types";
 
   interface Props {
@@ -18,9 +19,17 @@
   let currentFrame = $state(0);
   let nthValue = $state(2);
   let similarityThreshold = $state(95.0);
+  let frameDelaysMs = $state<number[]>([]);
+  let originalDelaysMs = $state<number[]>([]);
+  let batchDelayMs = $state(100);
 
   let selectedCount = $derived(selectedFrames.size);
-  let canApply = $derived(selectedCount > 0 && selectedCount < frameUrls.length);
+  let hasDelayChanges = $derived(
+    frameDelaysMs.length > 0 && frameDelaysMs.some((d, i) => d !== originalDelaysMs[i]),
+  );
+  let canApply = $derived(
+    (selectedCount > 0 && selectedCount < frameUrls.length) || hasDelayChanges,
+  );
   let aboveThresholdCount = $derived(() => {
     return similarities.filter((s) => s >= similarityThreshold).length;
   });
@@ -121,6 +130,22 @@
       frameUrls = urls;
       selectedFrames = new Set();
       currentFrame = 0;
+
+      // GIFの場合、各フレームのディレイ値を読み取る
+      if (getFileExtension(appState.workingInfo.name) === "gif") {
+        const data = new Uint8Array(await appState.workingBlob.arrayBuffer());
+        const delaysCs = parseGifDelays(data);
+        const ms = delaysCs.map((d) => d * 10);
+        // フレーム数と一致するよう調整
+        while (ms.length < urls.length) ms.push(100);
+        frameDelaysMs = ms.slice(0, urls.length);
+        originalDelaysMs = [...frameDelaysMs];
+        batchDelayMs = frameDelaysMs[0] ?? 100;
+      } else {
+        frameDelaysMs = [];
+        originalDelaysMs = [];
+      }
+
       await computeSimilarities(urls);
     } catch (e) {
       console.error("フレーム抽出に失敗:", e);
@@ -175,10 +200,31 @@
   function handleApply() {
     if (!canApply) return;
     const indices = Array.from(selectedFrames).sort((a, b) => a - b);
-    const remaining = frameUrls.length - indices.length;
+    const deleteSet = new Set(indices);
+
+    const parts: string[] = [];
+    if (indices.length > 0) {
+      parts.push(`${indices.length}フレーム削除`);
+    }
+    if (hasDelayChanges) {
+      parts.push("ディレイ変更");
+    }
+
+    // ディレイ変更がある場合のみ、残るフレームのディレイ（センチ秒）を計算
+    let delaysCs: number[] | undefined;
+    if (hasDelayChanges) {
+      delaysCs = [];
+      for (let i = 0; i < frameDelaysMs.length; i++) {
+        if (!deleteSet.has(i)) {
+          delaysCs.push(Math.max(2, Math.round(frameDelaysMs[i] / 10)));
+        }
+      }
+    }
+
     onApply({
-      label: `フレーム削除 (${indices.length}フレーム削除, 残り${remaining})`,
-      frameDelete: { frameIndices: indices },
+      label: parts.join(" + "),
+      frameDelete: indices.length > 0 ? { frameIndices: indices } : undefined,
+      frameDelays: delaysCs,
     });
   }
 </script>
@@ -213,6 +259,19 @@
             {#if currentFrame > 0 && similarities[currentFrame - 1] !== undefined}
               <span class="similarity-badge">
                 類似度: {similarities[currentFrame - 1]}%
+              </span>
+            {/if}
+            {#if frameDelaysMs.length > 0}
+              <span class="delay-edit">
+                <input
+                  type="number"
+                  value={frameDelaysMs[currentFrame]}
+                  oninput={(e) => { frameDelaysMs[currentFrame] = parseInt(e.currentTarget.value) || 0; }}
+                  min="20"
+                  step="10"
+                  class="delay-input"
+                />
+                <span class="delay-unit">ms</span>
               </span>
             {/if}
           </div>
@@ -254,6 +313,20 @@
                 <span class="thumb-sim">{similarities[i - 1]}%</span>
               {/if}
             </label>
+            {#if frameDelaysMs[i] !== undefined}
+              <div class="thumb-delay-row">
+                <input
+                  type="number"
+                  value={frameDelaysMs[i]}
+                  oninput={(e) => { frameDelaysMs[i] = parseInt(e.currentTarget.value) || 0; }}
+                  min="20"
+                  step="10"
+                  class="thumb-delay-input"
+                  class:modified={frameDelaysMs[i] !== originalDelaysMs[i]}
+                />
+                <span class="thumb-delay-unit">ms</span>
+              </div>
+            {/if}
           </div>
         {/each}
       </div>
@@ -308,12 +381,55 @@
       </div>
     </div>
 
+    <!-- Delay editing controls -->
+    {#if frameDelaysMs.length > 0}
+      <div class="controls">
+        <span class="controls-title">ディレイ編集</span>
+
+        <div class="auto-group">
+          <div class="auto-row">
+            <input
+              type="number"
+              bind:value={batchDelayMs}
+              min="20"
+              step="10"
+              class="num-input"
+            />
+            <span class="auto-label">ms</span>
+            <button
+              class="ctrl-btn"
+              onclick={() => {
+                for (let i = 0; i < frameDelaysMs.length; i++) {
+                  frameDelaysMs[i] = batchDelayMs;
+                }
+              }}
+            >
+              一括適用
+            </button>
+          </div>
+        </div>
+
+        <div class="action-row">
+          <button
+            class="ctrl-btn"
+            onclick={() => {
+              frameDelaysMs = [...originalDelaysMs];
+              batchDelayMs = originalDelaysMs[0] ?? 100;
+            }}
+            disabled={!hasDelayChanges}
+          >
+            ディレイを全て元に戻す
+          </button>
+        </div>
+      </div>
+    {/if}
+
     <button
       class="apply-btn"
       onclick={handleApply}
       disabled={appState.isProcessing || !canApply}
     >
-      プレビュー ({selectedCount}フレーム削除)
+      プレビュー{#if selectedCount > 0} ({selectedCount}フレーム削除){/if}{#if hasDelayChanges}{selectedCount > 0 ? " + " : " ("}ディレイ変更{selectedCount > 0 ? "" : ")"}{/if}
     </button>
   {/if}
 </div>
@@ -403,6 +519,66 @@
     border: 1px solid #3b82f633;
     padding: 1px 6px;
     border-radius: 4px;
+  }
+  .delay-edit {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .delay-input {
+    width: 55px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid #3f3f36;
+    background: #1a1a17;
+    color: #e4e4e7;
+    font-size: 0.75rem;
+    text-align: right;
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  .delay-input::-webkit-inner-spin-button,
+  .delay-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .delay-unit {
+    font-size: 0.7rem;
+    color: #525252;
+  }
+  .thumb-delay-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 1px 4px;
+    background: #111110;
+  }
+  .thumb-delay-input {
+    width: 100%;
+    min-width: 0;
+    padding: 1px 3px;
+    border-radius: 3px;
+    border: 1px solid #2d2d26;
+    background: #1a1a17;
+    color: #a3a3a3;
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  .thumb-delay-input::-webkit-inner-spin-button,
+  .thumb-delay-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+    font-size: 0.6rem;
+    text-align: right;
+  }
+  .thumb-delay-input.modified {
+    color: #a3a825;
+    border-color: #a3a82544;
+  }
+  .thumb-delay-unit {
+    font-size: 0.55rem;
+    color: #525252;
+    flex-shrink: 0;
   }
   .preview-image {
     display: flex;
@@ -538,6 +714,13 @@
     background: #1a1a17;
     color: #e4e4e7;
     font-size: 0.85rem;
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  .num-input::-webkit-inner-spin-button,
+  .num-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
   }
   .num-input.wide {
     width: 60px;

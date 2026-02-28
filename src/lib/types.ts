@@ -160,6 +160,7 @@ export interface EffectPayload {
   optimize?: OptimizeOption;
   outputFormat?: OutputFormat;
   frameDelete?: FrameDeleteOption;
+  frameDelays?: number[];
 }
 
 export interface ApplyEffectOptions {
@@ -177,5 +178,6 @@ export interface ApplyEffectOptions {
   filter?: FilterOption;
   optimize?: OptimizeOption;
   frameDelete?: FrameDeleteOption;
+  frameDelays?: number[];
   inputInfo?: GifFileInfo;
 }

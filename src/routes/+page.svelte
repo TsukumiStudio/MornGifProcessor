@@ -103,6 +103,7 @@
         filter: payload.filter,
         optimize: payload.optimize,
         frameDelete: payload.frameDelete,
+        frameDelays: payload.frameDelays,
         inputInfo: appState.workingInfo,
       });
 
