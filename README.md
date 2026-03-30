@@ -1,11 +1,5 @@
-# MornGifProcessor
-
 <p align="center">
-  <img src="static/icon.png" alt="MornGifProcessor" width="128" />
-</p>
-
-<p align="center">
-  ブラウザで動く GIF / APNG 加工ツール
+  <img src="static/banner.png" alt="MornGifProcessor" />
 </p>
 
 <p align="center">
